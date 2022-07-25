@@ -14,7 +14,7 @@ name: "Build+Push Images"
 on: # build on main branch OR when a PR is labeled with `CICD:build-images`
   # Allow us to run this specific workflow without a PR
   workflow_dispatch:
-  pull_request_target:
+  pull_request:
     types: [labeled, opened, synchronize, reopened, auto_merge_enabled]
   push:
     branches:
@@ -64,7 +64,8 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'CICD:build-images') ||
       contains(github.event.pull_request.labels.*.name, 'CICD:run-e2e-tests') ||
       contains(github.event.pull_request.labels.*.name, 'CICD:deploy-community-platform-to-staging') ||
-      github.event.pull_request.auto_merge != null
+      github.event.pull_request.auto_merge != null ||
+      contains(github.event.pull_request.body, '#e2e')
     runs-on: ubuntu-latest
     steps:
       - name: Check repository permission for user which triggered workflow
@@ -72,6 +73,15 @@ jobs:
         with:
           required-permission: write
           comment-not-permitted: Sorry, you don't have permission to trigger this workflow.
+
+  check-some-fucking-thing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check some fucking thing
+        run: echo BANANA
+        env:
+          LAST_FUCKING_BANANA: ${{ toJSON(github.event.pull_request) }}
+          ANOTHER_FUCKING_BANANA: ${{ contains(github.event.pull_request.body, '#e2e') }}
 
   determine-last-green-commit:
     runs-on: ubuntu-latest
@@ -85,7 +95,7 @@ jobs:
 
   rust-images:
     # trigger only for push events (on protected branches as defined above) OR on PR events with the "CICD:build-images" label.
-    needs: [permission-check, determine-last-green-commit]
+    needs: [permission-check, determine-last-green-commit, check-some-fucking-thing]
 
     runs-on: high-perf-docker
     steps:
@@ -119,7 +129,8 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.pull_request.labels.*.name, 'CICD:run-e2e-tests') ||
-      github.event.pull_request.auto_merge != null)
+      github.event.pull_request.auto_merge != null) ||
+      contains(github.event.pull_request.body, '#e2e')
     uses: ./.github/workflows/sdk-integration-test.yaml
     secrets: inherit
     with:
@@ -129,10 +140,12 @@ jobs:
     needs: rust-images
     if: |
       !contains(github.event.pull_request.labels.*.name, 'CICD:skip-forge-e2e-test') && (
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'CICD:run-e2e-tests') ||
-      github.event.pull_request.auto_merge != null)
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'CICD:run-e2e-tests') ||
+        github.event.pull_request.auto_merge != null ||
+        contains(github.event.pull_request.body, '#e2e')
+      )
     uses: ./.github/workflows/run-forge.yaml
     secrets: inherit
     with:
