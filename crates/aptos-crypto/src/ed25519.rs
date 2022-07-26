@@ -36,10 +36,11 @@ use crate::{
     traits::*,
 };
 use anyhow::{anyhow, Result};
-use aptos_crypto_derive::{DeserializeKey, SerializeKey, SilentDebug, SilentDisplay};
+use aptos_crypto_derive::{DeserializeKey, SerializeKey, SilentDebug, SilentDisplay, CryptoHasher, BCSCryptoHash};
 use core::convert::TryFrom;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::{cmp::Ordering, fmt};
+use curve25519_dalek::edwards::CompressedEdwardsY;
 
 /// The length of the Ed25519PrivateKey
 pub const ED25519_PRIVATE_KEY_LENGTH: usize = ed25519_dalek::SECRET_KEY_LENGTH;
@@ -77,6 +78,10 @@ pub struct Ed25519PublicKey(ed25519_dalek::PublicKey);
 #[derive(DeserializeKey, Clone, SerializeKey)]
 pub struct Ed25519Signature(ed25519_dalek::Signature);
 
+/// The challenge message for a proof-of-knowledge (PoK) of an Ed25519 private key
+#[derive(Debug, CryptoHasher, BCSCryptoHash, Serialize, Deserialize)]
+pub struct Ed25519PoKChallenge(Ed25519PublicKey, CompressedEdwardsY);
+
 impl Ed25519PrivateKey {
     /// The length of the Ed25519PrivateKey
     pub const LENGTH: usize = ed25519_dalek::SECRET_KEY_LENGTH;
@@ -105,6 +110,15 @@ impl Ed25519PrivateKey {
             ed25519_dalek::ExpandedSecretKey::from(secret_key);
         let sig = expanded_secret_key.sign(message.as_ref(), &public_key.0);
         Ed25519Signature(sig)
+    }
+
+    /// Creates a proof-of-knowledge (PoK) of this Ed25519 private key, which is merely a signature
+    /// on its associated public key.
+    fn create_proof_of_knowledge(&self) -> Ed25519Signature {
+        let pk = self.into();
+        let chal = Ed25519PoKChallenge(pk, curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED);
+
+        self.sign(&signing_message(&chal))
     }
 }
 
@@ -162,6 +176,14 @@ impl Ed25519PublicKey {
             .to_edwards(sign)
             .ok_or(CryptoMaterialError::DeserializationError)?;
         Ed25519PublicKey::try_from(&ed_point.compress().as_bytes()[..])
+    }
+
+    /// Verifies a proof-of-knowledge (PoK) of the Ed25519 private key corresponding to this public
+    /// key, which is merely a signature on this public key.
+    fn verify_proof_of_knowledge(&self, sig: &Ed25519Signature) -> Result<()> {
+        let chal = Ed25519PoKChallenge(self.clone(), curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED);
+
+        sig.verify(&signing_message(&chal), self)
     }
 }
 
